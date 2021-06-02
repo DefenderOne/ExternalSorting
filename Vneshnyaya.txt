@@ -1,0 +1,324 @@
+﻿//Естественное многопутевое несбалансированное однофазное неравномерное слияние.
+//Многопутевое - это сортировка, в которой данные распределяются на N(N > 2) вспомогательных файлов.
+//Несбалансированное - это естественное слияние, у которого после фазы распределения количество серий во вспомогательных файлах отличается друг от друга более чем на 1.
+//Однофазное - это сортировка, в которой объединены фазы распределения и слияния в одну.
+//Неравномерное -
+
+#include<iostream>
+#include<fstream>
+#include<windows.h>
+#include<string>
+#include<vector>
+
+using std::cout;
+using std::endl;
+using std::fstream;
+using std::string;
+using std::to_string;
+using std::vector;
+using std::swap;
+using std::ifstream;
+
+struct FileData
+{
+	string name;
+	fstream file;
+	bool endSubsequence = false, eof = false;
+	int elem = 0;
+};
+
+void partition(FileData*, FileData&, const int);
+void sort(string&);
+void openForWrite(FileData&);
+void openForReading(FileData&);
+void setElements(FileData&, FileData&);
+void setElement(FileData&, FileData&);
+void readNext(FileData&);
+void close(FileData&);
+void closeAll(FileData*, const int);
+bool merge(FileData*, FileData*, const int, const int);
+bool isEndOfTempSequences(FileData*, const int);
+FileData& minInSequences(FileData*, const int);
+int findFinished(FileData*, const int);
+void copyFile(FileData&);
+
+int main()
+{
+	SetConsoleOutputCP(1251);
+
+	string name = "test/test.txt";
+	ifstream file(name);
+
+	if (file.is_open())
+	{
+		if (file.peek() == EOF)
+		{
+			cout << "Файл пуст!\n";
+		}
+		else
+		{
+			cout << "Старт сортировки.\n";
+			sort(name);
+			cout << "Сортировка окончена.\n";
+		}
+	}
+	else
+	{
+		cout << "Ошибка открытия файла!\n";
+	}
+
+	return 0;
+}
+
+void partition(FileData* files, FileData& mainFile, const int size)
+{
+	openForReading(mainFile);
+
+	for (int i = 0; i < size; ++i)
+	{
+		openForWrite(files[i]);
+	}
+
+	while (!mainFile.eof)
+	{
+		for (int i = 0; i < size && !mainFile.eof; ++i)
+		{
+			setElements(mainFile, files[i]);
+			mainFile.endSubsequence = mainFile.eof;
+		}
+	}
+
+	closeAll(files, size);
+}
+
+bool merge(FileData* files1, FileData* files2, const int size1, const int size2)
+{
+	bool end = false;
+
+	for (int i = 0; i < size1; ++i)
+	{
+		openForReading(files1[i]);
+	}
+
+	for (int i = 0; i < size2; ++i)
+	{
+		openForWrite(files2[i]);
+	}
+
+	int copyToFileNum = 0;
+	int notEmptyFiles = size1;
+
+	notEmptyFiles = findFinished(files1, notEmptyFiles);
+
+	while (notEmptyFiles != -1)
+	{
+		while (!isEndOfTempSequences(files1, notEmptyFiles))
+		{
+			setElement(minInSequences(files1, notEmptyFiles), files2[copyToFileNum]);
+		}
+
+		for (int i = 0; i < notEmptyFiles; ++i)
+		{
+			files1[i].endSubsequence = files1[i].eof;
+		}
+
+		copyToFileNum = copyToFileNum == size2 - 1 ? 0 : copyToFileNum + 1;
+
+		notEmptyFiles = findFinished(files1, notEmptyFiles);
+	}
+
+	end = files2[1].file.peek() == EOF;
+
+	closeAll(files1, size1);
+	closeAll(files2, size2);
+
+	return end;
+}
+
+void sort(string& fileName)
+{
+	FileData mainFile;
+	mainFile.name = fileName;
+
+	const int numberFiles = 10;
+	const int numberFilesToMerge = numberFiles / 2;
+
+	FileData* first = new FileData[numberFiles];
+
+	for (int i = 0; i < numberFiles; ++i)
+	{
+		first[i].name = "test/" + to_string(i) + ".txt";
+	}
+
+	partition(first, mainFile, numberFiles);
+
+	FileData* second = new FileData[numberFilesToMerge];
+	for (int i = 0; i < numberFilesToMerge; ++i)
+	{
+		second[i].name = "test/" + to_string(i + numberFiles) + ".txt";
+	}
+
+	bool end = false, temp = false;
+	while (!end)
+	{
+		end = !temp ? merge(first, second, numberFiles, numberFilesToMerge) : merge(second, first, numberFilesToMerge, numberFiles);
+
+		if (!end)
+		{
+			temp = !temp;
+		}
+	}
+
+	if (!temp)
+	{
+		copyFile(second[0]);
+	}
+	else
+	{
+		copyFile(first[0]);
+	}
+
+	closeAll(first, numberFiles);
+	closeAll(second, numberFilesToMerge);
+
+	delete[] first;
+	delete[] second;
+}
+
+void openForWrite(FileData& file)
+{
+	file.file.open(file.name, fstream::out);
+}
+
+void openForReading(FileData& file)
+{
+	file.file.open(file.name, fstream::in);
+
+	if (file.file.peek() != EOF)
+	{
+		file.file >> file.elem;
+	}
+	else
+	{
+		file.eof = file.endSubsequence = true;
+	}
+}
+
+void setElements(FileData& main, FileData& temp)
+{
+	while (!main.endSubsequence)
+	{
+		temp.file << main.elem << ' ';
+		readNext(main);
+	}
+}
+
+void setElement(FileData& main, FileData& temp)
+{
+	temp.file << main.elem << ' ';
+	readNext(main);
+}
+
+void readNext(FileData& file)
+{
+	int temp = file.elem;
+
+	if (file.file >> file.elem)
+	{
+		if (temp > file.elem) 
+		{
+			file.endSubsequence = true;
+		}
+	}
+	else
+	{
+		file.eof = file.endSubsequence = true;
+	}
+}
+
+void close(FileData& file)
+{
+	file.endSubsequence = file.eof = false;
+	file.file.close();
+}
+
+void closeAll(FileData* files, const int size)
+{
+	for (int i = 0; i < size; ++i)
+	{
+		close(files[i]);
+	}
+}
+
+bool isEndOfTempSequences(FileData* files, const int to) 
+{
+	bool isEnd = true;
+
+	for (int i = 0; i < to && isEnd; ++i) 
+	{
+		isEnd = files[i].endSubsequence;
+	}
+
+	return isEnd;
+}
+
+FileData& minInSequences(FileData* files, const int to) 
+{
+	FileData* temp = &files[0];
+	int i = 1;
+
+	while (temp->endSubsequence)
+	{
+		temp = &files[i++];
+	}
+
+	while (i < to) 
+	{
+		if (!files[i].endSubsequence && files[i].elem < temp->elem)
+		{
+			temp = &files[i];
+		}
+
+		i++;
+	}
+
+	return *temp;
+}
+
+int findFinished(FileData* files, const int to)
+{
+	int i = 0, j = to;
+
+	while (files[j - 1].eof && j != 1)
+		j--;
+
+	while (i != j - 1)
+	{
+		if (files[i].eof)
+		{
+			swap(files[i], files[j - 1]);
+			j--;
+		}
+		else
+		{
+			i++;
+		}
+	}
+
+	return files[i].eof ? -1 : j;
+}
+
+void copyFile(FileData& first)
+{
+	first.file.open(first.name, fstream::in);
+	std::ofstream fout("finish.txt");
+
+	int temp;
+	while (first.file >> temp)
+	{	
+		fout << temp << ' ';
+	}
+
+	first.file.close();
+	fout.close();
+}
